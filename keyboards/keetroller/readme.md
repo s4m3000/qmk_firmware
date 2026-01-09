@@ -1,12 +1,8 @@
 # keetroller
 
-![keetroller](imgur.com image replace me!)
-
-*A short description of the keyboard/project*
+*The bastard child of a keeb and a controller.*
 
 * Keyboard Maintainer: [s4m3000](https://github.com/s4m3000)
-* Hardware Supported: *The PCBs, controllers supported*
-* Hardware Availability: *Links to where you can find this hardware*
 
 Make example for this keyboard (after setting up your build environment):
 

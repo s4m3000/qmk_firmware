@@ -1,0 +1,9 @@
+# Bootloader selection
+BOOTLOADER = rp2040
+
+POINTING_DEVICE_ENABLE = yes
+POINTING_DEVICE_DRIVER = analog_joystick
+
+OLED_ENABLE = yes
+OLED_DRIVER = ssd1306
+OLED_TRANSPORT = i2c
