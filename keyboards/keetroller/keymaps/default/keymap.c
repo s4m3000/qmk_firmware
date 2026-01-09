@@ -40,25 +40,51 @@ bool oled_task_user(void) {
 bool game_mode = true;
 
 report_mouse_t pointing_device_task_user(report_mouse_t mouse_report) {
-    if (game_mode) {
-        if (mouse_report.x >= 60) {
+    if (game_mode){
+        if (mouse_report.x >= 2) {
             SEND_STRING("L");
         }
-        if (mouse_report.x <= -60) {
+        if (mouse_report.x <= -2) {
             SEND_STRING("J");
         }
 
-        if (mouse_report.y >= 60) {
+        if (mouse_report.y >= 2) {
             SEND_STRING("I");
         }
-        if (mouse_report.y <= -60) {
+        if (mouse_report.y <= -2) {
             SEND_STRING("K");
         }
-        mouse_report.h = 0;
-        mouse_report.v = 0;
         mouse_report.x = 0;
         mouse_report.y = 0;
     }
 
     return mouse_report;
 }
+
+
+/*
+bool pointing_device_task(void) {
+    report_mouse_t mouse_report = pointing_device_get_report();
+
+    if (game_mode){
+        if (mouse_report.x >= 10) {
+            SEND_STRING("L");
+        }
+        if (mouse_report.x <= -10) {
+            SEND_STRING("J");
+        }
+
+        if (mouse_report.y >= 10) {
+            SEND_STRING("I");
+        }
+        if (mouse_report.y <= -10) {
+            SEND_STRING("K");
+        }
+        return false;
+    }
+
+    pointing_device_set_report(mouse_report);
+
+    return pointing_device_send();
+}
+    */
