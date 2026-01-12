@@ -21,10 +21,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
      * │ 0 │ . │Ent│ + │
      * └───┴───┴───┴───┘
      */
-    [0] = LAYOUT(
-        GM_TOGGLE 
-    )
-};
+    [0] = LAYOUT(GM_TOGGLE)};
 
 #ifdef OLED_ENABLE
 static void render_logo(void) {
@@ -46,7 +43,6 @@ bool oled_task_user(void) {
 
     oled_invert(game_mode);
 
-
     return false;
 }
 #endif
@@ -54,8 +50,7 @@ bool oled_task_user(void) {
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
         case GM_TOGGLE:
-            if (record->event.pressed)
-                game_mode = !game_mode;
+            if (record->event.pressed) game_mode = !game_mode;
             break;
         default:
             break;
@@ -64,53 +59,61 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     return true;
 }
 
-
 report_mouse_t pointing_device_task_user(report_mouse_t mouse_report) {
-    if (game_mode){
+    static bool kc_l_registered = false;
+    static bool kc_i_registered = false;
+    static bool kc_j_registered = false;
+    static bool kc_k_registered = false;
+
+    if (game_mode) {
         if (mouse_report.x >= 2) {
-            SEND_STRING("L");
+            register_code(KC_L);
+            kc_l_registered = true;
+        } else if (mouse_report.x < 2 && kc_l_registered) {
+            unregister_code(KC_L);
+            kc_l_registered = false;
         }
         if (mouse_report.x <= -2) {
-            SEND_STRING("J");
+            register_code(KC_J);
+            kc_j_registered = true;
+        } else if (mouse_report.x > -2 && kc_j_registered) {
+            unregister_code(KC_J);
+            kc_j_registered = false;
         }
 
         if (mouse_report.y >= 2) {
-            SEND_STRING("I");
+            register_code(KC_I);
+            kc_i_registered = true;
+        } else if (mouse_report.y < 2 && kc_i_registered) {
+            unregister_code(KC_I);
+            kc_i_registered = false;
         }
         if (mouse_report.y <= -2) {
-            SEND_STRING("K");
+            register_code(KC_K);
+            kc_k_registered = true;
+        } else if (mouse_report.y > 2 && kc_k_registered) {
+            unregister_code(KC_K);
+            kc_k_registered = false;
         }
-        mouse_report.x = 0;
-        mouse_report.y = 0;
     }
 
     return mouse_report;
 }
 
+bool pointing_device_send(void) {
+    static report_mouse_t old_report         = {};
+    report_mouse_t        current_report     = pointing_device_get_report();
+    bool                  should_send_report = has_mouse_report_changed(&current_report, &old_report) && !game_mode;
 
-/*
-bool pointing_device_task(void) {
-    report_mouse_t mouse_report = pointing_device_get_report();
-
-    if (game_mode){
-        if (mouse_report.x >= 10) {
-            SEND_STRING("L");
-        }
-        if (mouse_report.x <= -10) {
-            SEND_STRING("J");
-        }
-
-        if (mouse_report.y >= 10) {
-            SEND_STRING("I");
-        }
-        if (mouse_report.y <= -10) {
-            SEND_STRING("K");
-        }
-        return false;
+    if (should_send_report) {
+        host_mouse_send(&current_report);
     }
+    // send it and 0 it out except for buttons, so those stay until they are explicitly over-ridden using update_pointing_device
+    uint8_t buttons = current_report.buttons;
+    memset(&current_report, 0, sizeof(current_report));
+    current_report.buttons = buttons;
+    memcpy(&old_report, &current_report, sizeof(current_report));
+    pointing_device_set_report(current_report);
 
-    pointing_device_set_report(mouse_report);
-
-    return pointing_device_send();
+    return should_send_report || buttons;
 }
-    */

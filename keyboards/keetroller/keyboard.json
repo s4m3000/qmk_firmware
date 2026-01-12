@@ -12,8 +12,12 @@
         "oled": true
     },
     "matrix_pins": {
-        "cols": ["GP2"],
-        "rows": ["GP3"]
+        "cols": [
+            "GP2"
+        ],
+        "rows": [
+            "GP3"
+        ]
     },
     "url": "https://github.com/s4m3000/qmk_firmware",
     "usb": {
@@ -24,7 +28,14 @@
     "layouts": {
         "LAYOUT": {
             "layout": [
-                {"matrix": [0, 0], "x": 0, "y": 0}
+                {
+                    "matrix": [
+                        0,
+                        0
+                    ],
+                    "x": 0,
+                    "y": 0
+                }
             ]
         }
     }
