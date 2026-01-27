@@ -2,12 +2,24 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 
 #include QMK_KEYBOARD_H
+#include <stdio.h>
+#include <stdlib.h>
+
+// Aliases
+#define KC_F_RIGHT KC_L
+#define KC_F_LEFT KC_J
+#define KC_F_UP KC_I
+#define KC_F_DOWN KC_K
+#define KC_S_RIGHT RCTL(KC_F_RIGHT)
+#define KC_S_LEFT RCTL(KC_F_LEFT)
+#define KC_S_UP RCTL(KC_F_UP)
+#define KC_S_DOWN RCTL(KC_F_DOWN)
 
 enum custom_keycodes {
     GM_TOGGLE,
 };
 
-bool game_mode = false;
+bool _game_mode = false;
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     /*
@@ -36,12 +48,27 @@ static void render_logo(void) {
     oled_write_P(qmk_logo, false);
 }
 
+// TEST:
+static void print_mouse_report(void) {
+    return;
+    char buffer[12];
+    report_mouse_t mouse_report = pointing_device_get_report();
+
+    sprintf(buffer, "x val: %d", mouse_report.x);
+    oled_write_ln_P(buffer, false);
+
+    sprintf(buffer, "y val: %d", mouse_report.y);
+    oled_write_ln_P(buffer, false);
+}
+
 bool oled_task_user(void) {
     render_logo();
     oled_write_P(PSTR("Game Mode "), false);
-    oled_write_ln_P(game_mode ? PSTR("ON") : PSTR("OFF"), false);
+    oled_write_ln_P(_game_mode ? PSTR("ON") : PSTR("OFF"), false);
 
-    oled_invert(game_mode);
+    print_mouse_report();
+
+    oled_invert(_game_mode);
 
     return false;
 }
@@ -50,7 +77,7 @@ bool oled_task_user(void) {
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
         case GM_TOGGLE:
-            if (record->event.pressed) game_mode = !game_mode;
+            if (record->event.pressed) _game_mode = !_game_mode;
             break;
         default:
             break;
@@ -59,43 +86,207 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     return true;
 }
 
-report_mouse_t pointing_device_task_user(report_mouse_t mouse_report) {
-    static bool kc_l_registered = false;
-    static bool kc_i_registered = false;
-    static bool kc_j_registered = false;
-    static bool kc_k_registered = false;
+enum movement_speed_t {
+    NO_MVT,
+    SLOW,
+    FAST
+};
 
-    if (game_mode) {
-        if (mouse_report.x >= 2) {
-            register_code(KC_L);
-            kc_l_registered = true;
-        } else if (mouse_report.x < 2 && kc_l_registered) {
-            unregister_code(KC_L);
-            kc_l_registered = false;
-        }
-        if (mouse_report.x <= -2) {
-            register_code(KC_J);
-            kc_j_registered = true;
-        } else if (mouse_report.x > -2 && kc_j_registered) {
-            unregister_code(KC_J);
-            kc_j_registered = false;
-        }
+static enum movement_speed_t calculate_movement_speed(const int axis_value) {
+    const uint8_t min_threshold = 2;
+    const uint8_t range = 15;
 
-        if (mouse_report.y >= 2) {
-            register_code(KC_I);
-            kc_i_registered = true;
-        } else if (mouse_report.y < 2 && kc_i_registered) {
-            unregister_code(KC_I);
-            kc_i_registered = false;
-        }
-        if (mouse_report.y <= -2) {
-            register_code(KC_K);
-            kc_k_registered = true;
-        } else if (mouse_report.y > 2 && kc_k_registered) {
-            unregister_code(KC_K);
-            kc_k_registered = false;
-        }
+    int axis = abs(axis_value);
+    
+    if (axis < min_threshold) {
+        return NO_MVT;
     }
+
+    // TEST:
+    return FAST;
+
+    if (axis < min_threshold + range) {
+        return SLOW;
+    } else {
+        return FAST;
+    }
+}
+
+enum movement_direction_t {
+    POSITIVE,
+    NEGATIVE
+};
+
+struct movement_t {
+    enum movement_speed_t speed;
+    enum movement_direction_t direction;
+};
+
+static struct movement_t calculate_movement(const int axis_value) {
+    struct movement_t movement;
+    
+    movement.speed = calculate_movement_speed(axis_value);
+    movement.direction = axis_value < 0 ? NEGATIVE : POSITIVE;
+
+    return movement;
+}
+
+enum registered_x_kc_t {
+    X_NONE,
+    RIGHT_F_KC = KC_F_RIGHT,
+    LEFT_F_KC = KC_F_LEFT,
+    RIGHT_S_KC,
+    LEFT_S_KC
+};
+
+enum registered_y_kc_t {
+    Y_NONE,
+    UP_F_KC = KC_F_UP,
+    DOWN_F_KC = KC_F_DOWN,
+    UP_S_KC,
+    DOWN_S_KC,
+};
+
+void register_x_movement_kc(const struct movement_t x_movement) {
+    static enum registered_x_kc_t registered_x_kc = X_NONE;
+
+    switch (x_movement.speed) {
+        case SLOW:
+            if(registered_x_kc == RIGHT_F_KC) {
+                unregister_code(KC_F_RIGHT);
+            } else if (registered_x_kc == LEFT_F_KC) {
+                unregister_code(KC_F_LEFT);
+            }
+
+            // Move Right
+            if (x_movement.direction == POSITIVE) {
+                if (registered_x_kc == LEFT_S_KC)
+                    unregister_code16(KC_S_LEFT);
+                register_code16(KC_S_RIGHT);
+                registered_x_kc = RIGHT_S_KC;
+            }
+            // Move Left
+            else {
+                if (registered_x_kc == RIGHT_S_KC)
+                    unregister_code16(KC_S_RIGHT);
+                register_code16(KC_S_LEFT);
+                registered_x_kc = LEFT_S_KC;
+            }
+
+        case FAST:
+            if(registered_x_kc == RIGHT_S_KC) {
+                unregister_code16(KC_S_RIGHT);
+            } else if (registered_x_kc == LEFT_S_KC) {
+                unregister_code16(KC_S_LEFT);
+            }
+
+            // Move Right
+            if (x_movement.direction == POSITIVE) {
+                if (registered_x_kc == LEFT_F_KC)
+                    unregister_code(KC_F_LEFT);
+                register_code(KC_F_RIGHT);
+                registered_x_kc = KC_F_RIGHT;
+            }
+            // Move Left 
+            else {
+                if (registered_x_kc == RIGHT_F_KC)
+                    unregister_code(KC_F_RIGHT);
+                register_code(KC_F_LEFT);
+                registered_x_kc = KC_F_LEFT;
+            }
+            break;
+        // No X Movement
+        case NO_MVT:
+            if (registered_x_kc == RIGHT_F_KC) {
+                unregister_code(KC_F_RIGHT);
+            } else if (registered_x_kc == LEFT_F_KC) {
+                unregister_code(KC_F_LEFT);
+            } else if (registered_x_kc == RIGHT_S_KC) {
+                unregister_code16(KC_S_RIGHT);
+            } else if (registered_x_kc == LEFT_S_KC) {
+                unregister_code16(KC_S_LEFT);
+            }
+
+            registered_x_kc = X_NONE;
+            break;
+    }
+}
+
+void register_y_movement_kc(const struct movement_t y_movement) {
+    static enum registered_y_kc_t registered_y_kc = Y_NONE;
+
+    switch (y_movement.speed) {
+        case SLOW: 
+            if (registered_y_kc == UP_F_KC) {
+                unregister_code(KC_F_UP);
+            } else if (registered_y_kc == DOWN_F_KC) {
+                unregister_code(KC_F_DOWN);
+            }
+
+            // Move Up
+            if (y_movement.direction == POSITIVE) {
+                if (registered_y_kc == DOWN_S_KC)
+                    unregister_code16(KC_S_DOWN);
+                register_code16(KC_S_UP);
+                registered_y_kc = UP_S_KC;
+            }
+            // Move Down
+            else {
+                if (registered_y_kc == UP_S_KC)
+                    unregister_code16(KC_S_UP);
+                register_code16(KC_S_DOWN);
+                registered_y_kc = DOWN_S_KC;
+            }
+        case FAST:
+            if (registered_y_kc == UP_S_KC) {
+                unregister_code16(KC_S_UP);
+            } else if (registered_y_kc == DOWN_S_KC) {
+                unregister_code16(KC_S_DOWN);
+            }
+
+            // Move Up
+            if (y_movement.direction == POSITIVE) {
+                if (registered_y_kc == DOWN_F_KC)
+                    unregister_code(KC_F_DOWN);
+                register_code(KC_F_UP);
+                registered_y_kc = UP_F_KC;
+            }
+            // Move Down
+            else {
+                if (registered_y_kc == UP_F_KC)
+                    unregister_code(KC_F_UP);
+                register_code(KC_F_DOWN);
+                registered_y_kc = DOWN_F_KC;
+            }
+            break;
+        // No Y Movement
+        case NO_MVT:
+            if (registered_y_kc == UP_F_KC) {
+                unregister_code(KC_F_UP);
+            } else if (registered_y_kc == DOWN_F_KC) {
+                unregister_code(KC_F_DOWN);
+            } else if (registered_y_kc == UP_S_KC) {
+                unregister_code16(KC_S_UP);
+            } else if (registered_y_kc == DOWN_S_KC) {
+                unregister_code16(KC_S_DOWN);
+            }
+
+            registered_y_kc = Y_NONE;
+            break;
+    }
+}
+
+void register_movement_kc(const report_mouse_t mouse_report) {
+    if (!_game_mode) {
+        return;
+    }
+
+    register_x_movement_kc(calculate_movement(mouse_report.x));
+    register_y_movement_kc(calculate_movement(mouse_report.y));
+}
+
+report_mouse_t pointing_device_task_user(report_mouse_t mouse_report) {
+    register_movement_kc(mouse_report);
 
     return mouse_report;
 }
@@ -103,17 +294,19 @@ report_mouse_t pointing_device_task_user(report_mouse_t mouse_report) {
 bool pointing_device_send(void) {
     static report_mouse_t old_report         = {};
     report_mouse_t        current_report     = pointing_device_get_report();
-    bool                  should_send_report = has_mouse_report_changed(&current_report, &old_report) && !game_mode;
+    bool                  should_send_report = has_mouse_report_changed(&current_report, &old_report) && !_game_mode;
 
     if (should_send_report) {
         host_mouse_send(&current_report);
     }
     // send it and 0 it out except for buttons, so those stay until they are explicitly over-ridden using update_pointing_device
     uint8_t buttons = current_report.buttons;
-    memset(&current_report, 0, sizeof(current_report));
-    current_report.buttons = buttons;
-    memcpy(&old_report, &current_report, sizeof(current_report));
-    pointing_device_set_report(current_report);
+    if(!_game_mode) {
+        memset(&current_report, 0, sizeof(current_report));
+        current_report.buttons = buttons;
+        memcpy(&old_report, &current_report, sizeof(current_report));
+        pointing_device_set_report(current_report);
+    }
 
     return should_send_report || buttons;
 }
