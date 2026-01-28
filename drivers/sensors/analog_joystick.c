@@ -122,7 +122,7 @@ int8_t axisToMouseComponent(pin_t pin, int16_t origin, uint8_t maxSpeed, uint8_t
 }
 
 report_analog_joystick_t analog_joystick_read(void) {
-    report_analog_joystick_t report = {0};
+    static report_analog_joystick_t report = {0};
 
     if (timer_elapsed(lastCursor) > ANALOG_JOYSTICK_READ_INTERVAL) {
         lastCursor = timer_read();
