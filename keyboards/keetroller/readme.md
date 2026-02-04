@@ -21,3 +21,9 @@ Enter the bootloader in 3 ways:
 * **Bootmagic reset**: Hold down the key at (0,0) in the matrix (usually the top left key or Escape) and plug in the keyboard
 * **Physical reset button**: Briefly press the button on the back of the PCB - some may have pads you must short instead
 * **Keycode in layout**: Press the key mapped to `QK_BOOT` if it is available
+
+## QMK Commands
+
+* `qmk format-c <file>`: Format the c `<file`>.
+* `qmk flash -kb keetroller -km default`: Flash the keeb.
+* `qmk console`: Connect console to the keeb (must be enable on keeb to).
