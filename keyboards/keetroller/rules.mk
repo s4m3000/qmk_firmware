@@ -1,6 +1,9 @@
 # clang-format off
 #Bootloader selection
 BOOTLOADER = rp2040
+# enable debugging
+# CONSOLE_ENABLE = yes
+# KEYCODE_STRING_ENABLE = yes
 
 POINTING_DEVICE_ENABLE = yes 
 POINTING_DEVICE_DRIVER = analog_joystick

@@ -1,28 +1,103 @@
 // Copyright 2023 QMK
 // SPDX-License-Identifier: GPL-2.0-or-later
+// TODO: enable/disable slow movement for games which only support one movement speed.
+
+// If `_DEBUG` is defined, instead of sending movement keycodes, strings are sent to `qmk console`.
+// #define _DEBUG
 
 #include QMK_KEYBOARD_H
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-// Aliases
-#define KC_F_RIGHT KC_L
-#define KC_F_LEFT KC_J
-#define KC_F_UP KC_I
-#define KC_F_DOWN KC_K
-#define KC_S_RIGHT RCTL(KC_F_RIGHT)
-#define KC_S_LEFT RCTL(KC_F_LEFT)
-#define KC_S_UP RCTL(KC_F_UP)
-#define KC_S_DOWN RCTL(KC_F_DOWN)
+#ifdef _DEBUG
+// Enable printing to qmk console
+#    include "print.h"
 
-#define REG_KC(direction, speed) direction##_##speed
+#    define SPEED_STR(speed) speed == NO_MVT ? "no mvt" : (speed == FAST ? "fast" : "slow")
+#    define DIRECTION_STR(dir) dir == POSITIVE ? "positive" : "negative"
+#    define AXIS_STR(axis) axis == X_AXIS ? "x" : "y"
+#    define REG_KC_CAT_STR(kc_cat) kc_cat == NONE_REGISTERED ? "none" : (kc_cat == POSITIVE_SLOW ? "pos slw" : (kc_cat == POSITIVE_FAST ? "pos fst" : (kc_cat == NEGATIVE_SLOW ? "neg slw" : "neg fst")))
+#endif
+
+// Aliases
+enum movement_kc_t {
+    // Fast movement (replaces WASD)
+    KC_F_RIGHT = KC_L,
+    KC_F_LEFT  = KC_J,
+    KC_F_UP    = KC_I,
+    KC_F_DOWN  = KC_K,
+    // Slow movement (replaces WASD with R_CTL modifier)
+    // QK_RCTL is 0x1100, RCTL(kc) results in `QK_RCTL | kc`
+    KC_S_RIGHT = RCTL(KC_F_RIGHT),
+    KC_S_LEFT  = RCTL(KC_F_LEFT),
+    KC_S_UP    = RCTL(KC_F_UP),
+    KC_S_DOWN  = RCTL(KC_F_DOWN),
+    NO_MVT_KC  = KC_NO,
+};
+
+// Helper macros
+/**
+ * @brief Concat token `a` with token `b`.
+ * @param a leading token
+ * @param b trailing token
+ **/
+#define CONCAT(a, b) a##b
+
+#ifndef _DEBUG
+/**
+ * @brief Concat the QMK register or unregister function name for base keycodes.
+ * If `reg_unreg` is `register`, the concated function name is `register_code`, if it is `unregister`, the name is `unregister_code`.
+ * @param reg_unregister `register` to concat `register_code`, `unregister` to concat `unregister_code`
+ * @example `CAT_FUN_NAME(register) (kc); // Results in register_code(kc)`
+ **/
+#    define CAT_FUN_NAME(reg_unreg) CONCAT(reg_unreg, _code)
+/**
+ * @brief Concat the QMK register or unregister function name for modified keycodes.
+ * If `reg_unreg` is `register`, the concated function name is `register_code16`, if it is `unregister`, the name is `unregister_code16`.
+ * @param reg_unreg `register` to concat `register_code16`, `unregister` to concat `unregister_code16`
+ * @example `CAT_FUN16_NAME(unregister) (kc); // Results in unregister_code16(kc)`
+ **/
+#    define CAT_FUN16_NAME(reg_unreg) CONCAT(reg_unreg, _code16)
+/**
+ * @brief Call the corresponding QMK function to un- / register the keycode `kc`.
+ * If `kc` is a modified keycode (e.g. `RCTL(KC_L)`) the un- / register function for modified keycodes is called (e.g. `register_cod16(kc)`).
+ * If `kc` is a base keycode (e.g. `KC_L`) the un- / register function for base keycodes is called (e.g. `register_code(kc)`).
+ * @param reg_unreg `register` to call `register_code` / `register_code16`, `unregister` to call `unregister_code` / `unregister_code16`
+ * @example `QMK_REGISTER_UNREGISTER(register, KC_L); // Results in register_code(KC_L)`
+ * @example `QMK_REGISTER_UNREGISTER(unregister, RCTL(KC_L)); // Results in unregister_code16(RCTL(KC_L))
+ **/
+#    define QMK_REGISTER_UNREGISTER(reg_unreg, kc) is_ctl_modified(kc) ? CAT_FUN16_NAME(reg_unreg)(kc) : CAT_FUN_NAME(reg_unreg)(kc)
+#else
+// #define CAT_FUN_NAME(reg_unreg, kc) uprintf("%s_code\t%s\n", #reg_unreg, get_keycode_string(kc))
+// #define CAT_FUN16_NAME(reg_unreg, kc) uprintf("%s_code16\t%s\n", #reg_unreg, get_keycode_string(kc))
+#    define CAT_FUN_NAME(reg_unreg, kc) uprintf("%s_code\t%04x\n", #reg_unreg, kc)
+#    define CAT_FUN16_NAME(reg_unreg, kc) uprintf("%s_code16\t%04x\n", #reg_unreg, kc)
+#    define QMK_REGISTER_UNREGISTER(reg_unreg, kc) is_ctl_modified(kc) ? CAT_FUN16_NAME(reg_unreg, kc) : CAT_FUN_NAME(reg_unreg, kc);
+#endif
+/**
+ * @brief Call `QMK_REGISTER_UNREGISTER` to register the keycode `kc`.
+ * @param kc The keycode to register.
+ **/
+#define QMK_REGISTER_KC(kc) QMK_REGISTER_UNREGISTER(register, kc)
+/**
+ * @brief Call `QMK_REGISTER_UNREGISTER` to unregister the keycode `kc`.
+ * @param kc The keycode to unregister.
+ **/
+#define QMK_UNREGISTER_KC(kc) QMK_REGISTER_UNREGISTER(unregister, kc)
 
 enum custom_keycodes {
     GM_TOGGLE,
 };
 
-bool _game_mode = false;
+/**
+ * @brief Indicate if game mode is active or inactive.
+ * When game mode is active, reports from the keeb's pointing device will be translated into keycodes.
+ * E.g. moving the pointing device all the way to the left will then result in `KC_J`, moving it only half way will send `RCTL(KC_J)`.
+ * The mouse report it self will not be sent to the computer.
+ * @note We don't use WASD for the translated movement commands but IJKL (same pattern but on the right hand side).
+ **/
+static bool _game_mode = false;
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     /*
@@ -51,25 +126,10 @@ static void render_logo(void) {
     oled_write_P(qmk_logo, false);
 }
 
-// TEST:
-static void print_mouse_report(void) {
-    return;
-    char buffer[12];
-    report_mouse_t mouse_report = pointing_device_get_report();
-
-    sprintf(buffer, "x val: %d", mouse_report.x);
-    oled_write_ln_P(buffer, false);
-
-    sprintf(buffer, "y val: %d", mouse_report.y);
-    oled_write_ln_P(buffer, false);
-}
-
 bool oled_task_user(void) {
     render_logo();
     oled_write_P(PSTR("Game Mode "), false);
     oled_write_ln_P(_game_mode ? PSTR("ON") : PSTR("OFF"), false);
-
-    print_mouse_report();
 
     oled_invert(_game_mode);
 
@@ -89,21 +149,85 @@ bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     return true;
 }
 
+/**
+ * @enum movement_speed_t
+ * @brief Represents possible movement speeds.
+ **/
 enum movement_speed_t {
-    NO_MVT,
-    SLOW,
-    FAST
+    NO_MVT, /**< Indicates that no movement command should be sent. */
+    SLOW,   /**< Slow movement should be sent (e.g. `RCTL(KC_I)`). */
+    FAST    /**< Fast movement should be sent (e.g. `KC_I`). */
 };
 
+enum movement_direction_t { POSITIVE, NEGATIVE };
+
+enum movement_axis_t { X_AXIS, Y_AXIS, AXIS_CNT };
+
+/**
+ * @enum registered_kc_cat_t
+ * @brief Defines keycode categories for movement speeds and directions.
+ **/
+enum registered_kc_cat_t { NONE_REGISTERED, POSITIVE_SLOW, POSITIVE_FAST, NEGATIVE_SLOW, NEGATIVE_FAST };
+
+/**
+ * @struct movement_t
+ * @brief Represents a movement on an axis with speed, direction, axis, registered keycode.
+ **/
+struct movement_t {
+    enum movement_speed_t     speed;
+    enum movement_direction_t direction;
+    enum movement_axis_t      axis;
+    enum movement_kc_t        registered_kc;
+};
+
+/**
+ * @struct xy_movement_t
+ * @brief Structures the x and y movement.
+ **/
+struct xy_movement_t {
+    struct movement_t movement_axis[AXIS_CNT];
+};
+
+/**
+ * @brief Determine if `kc` is a keycode modified with RCTL (e.g. `RCTL(KC_L)`).
+ * @param kc The keycode to inspect.
+ * @return `true` if `kc` is modified with `RCTL`.
+ **/
+static inline bool is_ctl_modified(const uint16_t kc) {
+    return (QK_RCTL & kc);
+}
+
+/**
+ * @brief Get the movement speed based on the given keycode.
+ * @param kc The keycode to get the corresponding movement speed from.
+ * @return `SLOW` if `kc` is CTL modified, `FAST` otherwise.
+ **/
+static inline enum movement_speed_t kc_2_speed(const enum movement_kc_t kc) {
+    // TODO: return `NO_MVT` if `kc` is no movement keycode
+    return is_ctl_modified(kc) ? SLOW : FAST;
+}
+
+/**
+ * @brief Get the movement direction based on the given keycode.
+ * @param kc The keycode to get the corresponding movement direction from.
+ * @return `POSITIVE` for up/right movements, `NEGATIVE` otherwise.
+ **/
+static inline enum movement_direction_t kc_2_dir(const enum movement_kc_t kc) {
+    return ((kc & 0xff) == KC_F_RIGHT || (kc & 0xff) == KC_F_UP) ? POSITIVE : NEGATIVE;
+}
+
+/**
+ * @brief Calculate the movement speed from mouse report's movement axis value.
+ * @param axis_value The value of the x- / y-axis movement.
+ * @return A `movement_speed_t` value, bassed on `axis_value`.
+ **/
 static enum movement_speed_t calculate_movement_speed(const int axis_value) {
     const uint8_t min_threshold = 2;
-    const uint8_t range = 8;
+    const uint8_t range         = 2;
 
     int axis = abs(axis_value);
-    
-    if (axis < min_threshold) {
-        return NO_MVT;
-    }
+
+    if (axis < min_threshold) return NO_MVT;
 
     if (axis < min_threshold + range) {
         return SLOW;
@@ -112,55 +236,14 @@ static enum movement_speed_t calculate_movement_speed(const int axis_value) {
     }
 }
 
-enum movement_direction_t {
-    POSITIVE,
-    NEGATIVE
-};
-
-enum movement_axis_t {
-    X_AXIS,
-    Y_AXIS,
-    AXIS_CNT
-};
-
-enum registered_kc_t {
-    NONE_REGISTERED,
-    POSITIVE_SLOW,
-    POSITIVE_FAST,
-    NEGATIVE_SLOW,
-    NEGATIVE_FAST
-};
-
-struct movement_t {
-    enum movement_speed_t speed;
-    enum movement_direction_t direction;
-    enum movement_axis_t axis;
-    enum registered_kc_t registered_code;
-};
-
-enum registered_x_kc_t {
-    X_NONE,
-    RIGHT_F_KC,
-    LEFT_F_KC,
-    RIGHT_S_KC,
-    LEFT_S_KC,
-    NO_OF_X_KC
-};
-
-enum registered_y_kc_t {
-    Y_NONE,
-    UP_F_KC,
-    DOWN_F_KC,
-    UP_S_KC,
-    DOWN_S_KC,
-    NO_OF_Y_KC
-};
-
-struct xy_movement_t {
-    struct movement_t movement_axis[AXIS_CNT];
-};
-
-static uint8_t get_kc(const enum movement_axis_t axis, const enum movement_direction_t direction, const enum movement_speed_t speed) {
+/**
+ * @brief Get the corresponding keycode based on axis, direction and speed.
+ * @param axis The axis on which the movement happens (`X_AXIS` or `Y_AXIS`).
+ * @param direction The direction on the axis (`POSITIVE` or `NEGATIVE`).
+ * @param speed The movement speed (`NO_MVT`, `FAST` or `SLOW`).
+ * @return The keycode corresponding to the movement.
+ **/
+static enum movement_kc_t axis_dir_spd_2_kc(const enum movement_axis_t axis, const enum movement_direction_t direction, const enum movement_speed_t speed) {
     switch (speed) {
         case FAST:
             if (axis == X_AXIS) {
@@ -179,55 +262,73 @@ static uint8_t get_kc(const enum movement_axis_t axis, const enum movement_direc
     }
 }
 
-static struct movement_t calculate_movement(const enum movement_axis_t axis, const int axis_value, const enum registered_kc_t registered_code) {
+/**
+ * @brief Generate the axis movement based on the axis, value from mouse report and registered_kc.
+ * @param axis The axis for the movement (`X_AXIS` or `Y_AXIS`).
+ * @param axis_value The value from the mouse report on the `axis`.
+ * @param registered_kc A keycode which will be set as the movement's `registered_kc`.
+ * @return The movement for one axis.
+ **/
+static struct movement_t calculate_movement(const enum movement_axis_t axis, const int axis_value, const enum movement_kc_t registered_kc) {
     struct movement_t movement;
-    
-    movement.speed = calculate_movement_speed(axis_value);
-    movement.direction = axis_value < 0 ? NEGATIVE : POSITIVE;
-    movement.axis = axis;
-    movement.registered_code = registered_code;
+
+    movement.speed         = calculate_movement_speed(axis_value);
+    movement.direction     = axis_value < 0 ? NEGATIVE : POSITIVE;
+    movement.axis          = axis;
+    movement.registered_kc = registered_kc;
 
     return movement;
 }
 
-bool movement_changed(const struct movement_t old_movement, const struct movement_t current_movement) {
-    return old_movement.speed != current_movement.speed && old_movement.direction != current_movement.direction;
+/**
+ * @brief Check if movement speed or direction are different in `old_movement` and `current_movement`.
+ * @param old_movement A `movement_t` to be compared to `current_movement`.
+ * @param current_movement A `movement_t` to be compared to `old_movement`.
+ * @return `true` if `speed` and/or `direction` of `old_movement` differ from the ones in `current_movement`.
+ **/
+static inline bool movement_changed(const struct movement_t old_movement, const struct movement_t current_movement) {
+    return old_movement.speed != current_movement.speed || old_movement.direction != current_movement.direction;
 }
 
-static struct xy_movement_t compose_xy_movement(const report_mouse_t mouse_report, const enum registered_kc_t registered_x_code, const enum registered_kc_t registered_y_code) {
+/**
+ * @brief Construct the movement on the x- and y-axis.
+ * @param mouse_report The mouse report with the mouse values on x- and y-axis.
+ * @param registered_x_kc A keycode to be attached to the x-axis.
+ * @param registered_y_kc A keycode to be attached to the y-axis.
+ * @return A `xy_movement_t` struct.
+ **/
+static struct xy_movement_t compose_xy_movement(const report_mouse_t mouse_report, const uint16_t registered_x_kc, const uint16_t registered_y_kc) {
     struct xy_movement_t xy_movement;
-    
-    xy_movement.movement_axis[X_AXIS] = calculate_movement(X_AXIS, mouse_report.x, registered_x_code);
-    xy_movement.movement_axis[Y_AXIS] = calculate_movement(Y_AXIS, mouse_report.y, registered_y_code);
+
+    xy_movement.movement_axis[X_AXIS] = calculate_movement(X_AXIS, mouse_report.x, registered_x_kc);
+    xy_movement.movement_axis[Y_AXIS] = calculate_movement(Y_AXIS, mouse_report.y, registered_y_kc);
 
     return xy_movement;
 }
 
-void unregister_axis_movement_kc(struct movement_t* const movement_axis) {
-    const enum movement_axis_t axis = movement_axis->axis;
-    const enum movement_direction_t direction = movement_axis->direction;
-    const enum movement_speed_t speed = movement_axis->speed;
-    const uint8_t kc = get_kc(axis, direction, speed);
+/**
+ * @brief Unregister the keycode on the `movement_axis` if any is registered.
+ * If `NO_MVT_KC` is `registered_kc`, this function does nothing.
+ * After unregistering the keycode, `registered_kc` of `movement_axis` will be set to `NO_MVT_KC`.
+ * @param movement_axis Pointer to the `movement_t` axis on which the keycode will be unregistered.
+ * @return void
+ **/
+void unregister_axis_movement_kc(struct movement_t *const movement_axis) {
+    const enum movement_kc_t registered_kc = movement_axis->registered_kc;
 
-    switch (movement_axis->registered_code) {
-        case NONE_REGISTERED:
-            return;
-        case POSITIVE_SLOW:
-        case NEGATIVE_SLOW:
-            unregister_code16(kc);
-            break;
-        case POSITIVE_FAST:
-        case NEGATIVE_FAST:
-            unregister_code(kc);
-            break;
-    }
+    if (registered_kc == NO_MVT_KC) return;
 
-    movement_axis->registered_code = NONE_REGISTERED;
+    QMK_UNREGISTER_KC(registered_kc);
+
+    movement_axis->registered_kc = NO_MVT_KC;
 }
 
-static void unregister_all_movement_kc(struct xy_movement_t* const movement) {
-    if (movement->movement_axis[X_AXIS].registered_code == NONE_REGISTERED && 
-        movement->movement_axis[Y_AXIS].registered_code == NONE_REGISTERED) {
+/**
+ * @brief Unregister the keycodes of both axis if any is registered.
+ * @param movement Pointer to the `xy_movement_t` struct variable.
+ **/
+static void unregister_all_movement_kc(struct xy_movement_t *const movement) {
+    if (movement->movement_axis[X_AXIS].registered_kc == NO_MVT_KC && movement->movement_axis[Y_AXIS].registered_kc == NO_MVT_KC) {
         return;
     }
 
@@ -236,92 +337,67 @@ static void unregister_all_movement_kc(struct xy_movement_t* const movement) {
     }
 }
 
-static void register_axis_movement(struct movement_t* const movement) {
-    enum registered_kc_t registered_kc = movement->registered_code;
-    static struct movement_t old_movement = {};
+/**
+ * @brief Move the player character on the axis specified in `movement`.
+ * This function updates `movement`s `registered_kc`.
+ * @param movement Pointer to the `movement_t` struct on the axis.
+ **/
+static void move_on_axis(struct movement_t *const movement) {
+    // `registered_kc` is previously set and will be updated in this function. It represents the previous movement not the current one!
+    enum movement_kc_t             *registered_kc = &movement->registered_kc;
+    const enum movement_axis_t      axis          = movement->axis;
+    const enum movement_direction_t direction     = movement->direction;
+    const enum movement_speed_t     speed         = movement->speed;
 
-    if (!movement_changed(old_movement, *movement))
-        return;
+    if (speed != NO_MVT) {
+        // Unregister keycodes for opposite speeds.
+        // Opposite speed to `FAST` is `SLOW` and vice versa...
+        const enum movement_speed_t opposite_speed = (speed == SLOW ? FAST : SLOW);
+        if (kc_2_speed(*registered_kc) == opposite_speed && *registered_kc != NO_MVT_KC) {
+            QMK_UNREGISTER_KC(*registered_kc);
+        }
 
-    const enum movement_axis_t axis = movement->axis;
-    const enum movement_direction_t direction = movement->direction;
+        // Unregister keycodes for opposite directions.
+        const enum movement_direction_t opposite_direction = (direction == NEGATIVE ? POSITIVE : NEGATIVE);
+        if (kc_2_dir(*registered_kc) == opposite_direction && *registered_kc != NO_MVT_KC) {
+            QMK_UNREGISTER_KC(*registered_kc);
+        }
 
-    switch (movement->speed) {
-        case SLOW:
-            // Unregister fast KCs if they where registered before.
-            if(registered_kc == POSITIVE_FAST) {
-                unregister_code(get_kc(axis, POSITIVE, FAST));
-            } else if (registered_kc == NEGATIVE_FAST) {
-                unregister_code(get_kc(axis, NEGATIVE, FAST));
-            }
-
-            // Move Right / Up
-            if (direction == POSITIVE) {
-                if (registered_kc == NEGATIVE_SLOW)
-                    unregister_code16(get_kc(axis, NEGATIVE, SLOW));
-                register_code16(get_kc(axis, POSITIVE, SLOW));
-                registered_kc = POSITIVE_SLOW;
-            }
-            // Move Left / Down
-            else {
-                if (registered_kc == POSITIVE_SLOW)
-                    unregister_code16(get_kc(axis, POSITIVE, SLOW));
-                register_code16(get_kc(axis, NEGATIVE, SLOW));
-                registered_kc = NEGATIVE_SLOW;
-            }
-            break;
-        case FAST:
-            // Unregister slow KCs if they where registered before.
-            if(registered_kc == POSITIVE_SLOW) {
-                unregister_code16(get_kc(axis, POSITIVE, SLOW));
-            } else if (registered_kc == NEGATIVE_FAST) {
-                unregister_code16(get_kc(axis, NEGATIVE, SLOW));
-            }
-
-            // Move Right / Up
-            if (direction == POSITIVE) {
-                if (registered_kc == NEGATIVE_FAST)
-                    unregister_code(get_kc(axis, NEGATIVE, FAST));
-                register_code(get_kc(axis, POSITIVE, FAST));
-                registered_kc = POSITIVE_FAST;
-            }
-            // Move Left 
-            else {
-                if (registered_kc == POSITIVE_FAST)
-                    unregister_code(get_kc(axis, POSITIVE, FAST));
-                register_code(get_kc(axis, NEGATIVE, FAST));
-                registered_kc = NEGATIVE_FAST;
-            }
-            break;
-        // No X Movement
-        case NO_MVT:
-            unregister_axis_movement_kc(movement);
+        // Register the keycode corresponding to the movement.
+        *registered_kc = axis_dir_spd_2_kc(axis, direction, speed);
+        QMK_REGISTER_KC(*registered_kc);
+    } else {
+        unregister_axis_movement_kc(movement);
     }
-
-    movement->registered_code = registered_kc;
-    memcpy(&old_movement, &movement, sizeof(old_movement));
 }
 
-void register_movement_kc(const report_mouse_t mouse_report) {
+/**
+ * @brief Translate the axis values of the `mouse_report` to character movement keycodes.
+ * @param mouse_report The mouse report which will be translated to the player movement.
+ **/
+void move_player_character(const report_mouse_t mouse_report) {
     static struct xy_movement_t old_xy_movement = {};
 
     if (!_game_mode) {
-        unregister_all_movement_kc(&old_xy_movement);
+        if (old_xy_movement.movement_axis[X_AXIS].registered_kc != NO_MVT_KC || old_xy_movement.movement_axis[Y_AXIS].registered_kc != NO_MVT_KC) {
+            unregister_all_movement_kc(&old_xy_movement);
+        }
         return;
     }
 
-    struct xy_movement_t current_xy_movement = compose_xy_movement(
-        mouse_report, old_xy_movement.movement_axis[X_AXIS].registered_code, old_xy_movement.movement_axis[Y_AXIS].registered_code
-    );
+    struct xy_movement_t current_xy_movement = compose_xy_movement(mouse_report, old_xy_movement.movement_axis[X_AXIS].registered_kc, old_xy_movement.movement_axis[Y_AXIS].registered_kc);
 
-    for (int i = 0; i < AXIS_CNT; i++)
-        register_axis_movement(&current_xy_movement.movement_axis[i]);
+    for (int i = 0; i < AXIS_CNT; i++) {
+        if (movement_changed(old_xy_movement.movement_axis[i], current_xy_movement.movement_axis[i])) {
+            move_on_axis(&current_xy_movement.movement_axis[i]);
+        }
+    }
 
     memcpy(&old_xy_movement, &current_xy_movement, sizeof(old_xy_movement));
 }
 
 report_mouse_t pointing_device_task_user(report_mouse_t mouse_report) {
-    register_movement_kc(mouse_report);
+    move_player_character(mouse_report);
 
     return mouse_report;
 }
@@ -336,7 +412,7 @@ bool pointing_device_send(void) {
     }
     // send it and 0 it out except for buttons, so those stay until they are explicitly over-ridden using update_pointing_device
     uint8_t buttons = current_report.buttons;
-    if(!_game_mode) {
+    if (!_game_mode) {
         memset(&current_report, 0, sizeof(current_report));
         current_report.buttons = buttons;
         memcpy(&old_report, &current_report, sizeof(current_report));
