@@ -16,24 +16,28 @@ enum custom_keycodes {
 };
 
 const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
-    /*
-     * ┌───┬───┬───┬───┐
-     * │ 7 │ 8 │ 9 │ / │
-     * ├───┼───┼───┼───┤
-     * │ 4 │ 5 │ 6 │ * │
-     * ├───┼───┼───┼───┤
-     * │ 1 │ 2 │ 3 │ - │
-     * ├───┼───┼───┼───┤
-     * │ 0 │ . │Ent│ + │
-     * └───┴───┴───┴───┘
-     */
-    [0] = LAYOUT(GM_TOGGLE)};
+    [0] = LAYOUT(TD(GM_TOGGLE))
+};
+
+void toggle_game_mode(tap_dance_state_t *state, void *user_data) {
+    switch (state->count) {
+        case 1:
+            game_mode = !game_mode;
+            break;
+        case 2:
+            if (game_mode) { slow_movement_enabled = !slow_movement_enabled; }
+            break;
+    }
+    reset_tap_dance(state);
+}
+
+// Tap Dance definitions
+tap_dance_action_t tap_dance_actions[] = {
+    [GM_TOGGLE] = ACTION_TAP_DANCE_FN(toggle_game_mode),
+};
 
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
-        case GM_TOGGLE:
-            if (record->event.pressed) game_mode = !game_mode;
-            break;
         default:
             break;
     }

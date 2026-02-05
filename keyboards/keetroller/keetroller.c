@@ -6,7 +6,7 @@
 #include "mouse_2_movement.h"
 
 bool game_mode             = false;
-bool slow_movement_enabled = false;
+bool slow_movement_enabled = true;
 
 #ifdef OLED_ENABLE
 static void render_logo(void) {
@@ -23,9 +23,13 @@ static void render_logo(void) {
 
 bool oled_task_kb(void) {
     render_logo();
-    oled_write_P(PSTR("Game Mode "), false);
-    oled_write_ln_P(game_mode ? PSTR("ON") : PSTR("OFF"), false);
-
+    //oled_write_P(PSTR("Game Mode "), false);
+    oled_write_P(game_mode ? PSTR("Game Mode") : PSTR("Boring Mode"), false);
+    if (game_mode) {
+    oled_write_P(slow_movement_enabled ? PSTR(" * SLW EN") : PSTR(" * SLW DA"), false);
+    } else {
+        oled_write_ln_P(PSTR(""), false);
+    }
     oled_invert(game_mode);
 
     return false;

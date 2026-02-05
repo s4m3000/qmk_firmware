@@ -311,8 +311,9 @@ static void unregister_all_movement_kc(struct xy_movement_t *const movement) {
  * This function updates `movement`s `registered_kc`.
  * @note Call this function only when the movement has changed.
  * @param movement Pointer to the `movement_t` struct on the axis.
+ * @param ignore_slow_mvt Indicate to ignore slow movements (e.g. for diagonal movement)
  **/
-static void move_on_axis(struct movement_t *const movement) {
+static void move_on_axis(struct movement_t *const movement, const bool ignore_slow_mvt) {
     // `registered_kc` is previously set and will be updated in this function. It represents the previous movement not the current one!
     enum movement_kc_t             *registered_kc = &movement->registered_kc;
     const enum movement_axis_t      axis          = movement->axis;
@@ -324,7 +325,7 @@ static void move_on_axis(struct movement_t *const movement) {
         const enum speed_transition_t speed_trans = calculate_speed_transition(kc_2_speed(*registered_kc), speed);
         const bool                     same_dir    = direction == kc_2_dir(*registered_kc);
         // If speed changes from `FAST` to `SLOW` in the same direction, only modifier has to be registered.
-        if (speed_trans == FAST_2_SLOW && same_dir) {
+        if (speed_trans == FAST_2_SLOW && same_dir && !ignore_slow_mvt) {
             QMK_REGISTER_KC((uint16_t)QK_RCTL);
         }
         // If speed changes from `SLOW` to `FAST` in same direction, only modifier has to be unregistered.
@@ -332,12 +333,12 @@ static void move_on_axis(struct movement_t *const movement) {
             QMK_UNREGISTER_KC(QK_RCTL);
         }
         // If speed stays on `SLOW` but direction changes, unregister the old 'direction' kc and register the new one.
-        else if (speed == SLOW && speed_trans == NO_TRANSITION && !same_dir) {
+        else if (speed == SLOW && speed_trans == NO_TRANSITION && !same_dir && !ignore_slow_mvt) {
             QMK_UNREGISTER_KC(*registered_kc & 0xff);
             QMK_REGISTER_KC(new_kc & 0xff);
         } else {
             QMK_UNREGISTER_KC(*registered_kc);
-            QMK_REGISTER_KC(new_kc);
+            QMK_REGISTER_KC(ignore_slow_mvt ? new_kc & 0xff : new_kc);
         }
 
         *registered_kc = new_kc;
@@ -363,9 +364,11 @@ void move_player_character(const report_mouse_t mouse_report, const bool game_mo
 
     struct xy_movement_t current_xy_movement = compose_xy_movement(mouse_report, old_xy_movement.movement_axis[X_AXIS].registered_kc, old_xy_movement.movement_axis[Y_AXIS].registered_kc);
 
+    const bool ignore_slow_mvt = current_xy_movement.movement_axis[X_AXIS].speed == FAST || current_xy_movement.movement_axis[Y_AXIS].speed == FAST;
+
     for (int i = 0; i < AXIS_CNT; i++) {
         if (movement_changed(old_xy_movement.movement_axis[i], current_xy_movement.movement_axis[i])) {
-            move_on_axis(&current_xy_movement.movement_axis[i]);
+            move_on_axis(&current_xy_movement.movement_axis[i], ignore_slow_mvt);
         }
     }
 
