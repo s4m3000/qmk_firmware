@@ -5,7 +5,8 @@
 #include QMK_KEYBOARD_H
 #include "mouse_2_movement.h"
 
-bool game_mode = false;
+bool game_mode             = false;
+bool slow_movement_enabled = false;
 
 #ifdef OLED_ENABLE
 static void render_logo(void) {

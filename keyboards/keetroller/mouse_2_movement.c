@@ -28,6 +28,7 @@
  **/
 #define CONCAT(a, b) a##b
 
+#define IS_MODIFIED(kc) (kc & QK_RCTL)
 #ifndef _DEBUG
 /**
  * @brief Concat the QMK register or unregister function name for base keycodes.
@@ -51,13 +52,13 @@
  * @example `QMK_REGISTER_UNREGISTER(register, KC_L); // Results in register_code(KC_L)`
  * @example `QMK_REGISTER_UNREGISTER(unregister, RCTL(KC_L)); // Results in unregister_code16(RCTL(KC_L))
  **/
-#    define QMK_REGISTER_UNREGISTER(reg_unreg, kc) is_ctl_modified(kc) ? CAT_FUN16_NAME(reg_unreg)(kc) : CAT_FUN_NAME(reg_unreg)(kc)
+#    define QMK_REGISTER_UNREGISTER(reg_unreg, kc) /*is_ctl_modified(kc)*/ IS_MODIFIED(kc) ? CAT_FUN16_NAME(reg_unreg)(kc) : CAT_FUN_NAME(reg_unreg)(kc)
 #else
 // #define CAT_FUN_NAME(reg_unreg, kc) uprintf("%s_code\t%s\n", #reg_unreg, get_keycode_string(kc))
 // #define CAT_FUN16_NAME(reg_unreg, kc) uprintf("%s_code16\t%s\n", #reg_unreg, get_keycode_string(kc))
 #    define CAT_FUN_NAME(reg_unreg, kc) uprintf("%s_code\t%04x\n", #reg_unreg, kc)
 #    define CAT_FUN16_NAME(reg_unreg, kc) uprintf("%s_code16\t%04x\n", #reg_unreg, kc)
-#    define QMK_REGISTER_UNREGISTER(reg_unreg, kc) is_ctl_modified(kc) ? CAT_FUN16_NAME(reg_unreg, kc) : CAT_FUN_NAME(reg_unreg, kc);
+#    define QMK_REGISTER_UNREGISTER(reg_unreg, kc) is_ctl_modified(kc) ? CAT_FUN16_NAME(reg_unreg, kc) : CAT_FUN_NAME(reg_unreg, kc)
 #endif
 /**
  * @brief Call `QMK_REGISTER_UNREGISTER` to register the keycode `kc`.
@@ -74,8 +75,8 @@ enum movement_kc_t {
     // Fast movement (replaces WASD)
     KC_F_RIGHT = KC_L,
     KC_F_LEFT  = KC_J,
-    KC_F_UP    = KC_I,
-    KC_F_DOWN  = KC_K,
+    KC_F_UP    = KC_K,  // On y axis, `POSITIVE`/`NEGATIVE` directions
+    KC_F_DOWN  = KC_I,  // are inverted.
     // Slow movement (replaces WASD with R_CTL modifier)
     // QK_RCTL is 0x1100, RCTL(kc) results in `QK_RCTL | kc`
     KC_S_RIGHT = RCTL(KC_F_RIGHT),
@@ -124,6 +125,30 @@ struct xy_movement_t {
     struct movement_t movement_axis[AXIS_CNT];
 };
 
+/**
+ * @brief Factor to multiply the subtractand by when calculating the speed transitien.
+ * @see The docs of `speed_transition_t`.
+ **/
+#define SPEED_DIFF_FAC 3
+
+/**
+ * @enum speed_transition_t
+ * @brief Represents the movement speed transitions from one movement to another.
+ * If the speeds are not equal, the calculation is done by subtracting the current speed from the previous one.
+ * To ensure the values are distinctive from each other, the subtractand is multiplied by a factor.
+ **/
+
+// clang-format off
+enum speed_transition_t { 
+    NO_TRANSITION = 0, 
+    SLOW_2_FAST = SLOW - SPEED_DIFF_FAC * FAST, // 7
+    FAST_2_SLOW = FAST - SPEED_DIFF_FAC * SLOW, // 5
+    SLOW_2_NO_MVT = SLOW - SPEED_DIFF_FAC * NO_MVT, // 1
+    FAST_2_NO_MVT = FAST - SPEED_DIFF_FAC * NO_MVT, // 2
+    NO_MVT_2_SLOW = NO_MVT - SPEED_DIFF_FAC * SLOW, // 3
+    NO_MVT_2_FAST = NO_MVT - SPEED_DIFF_FAC * FAST  // 7
+};
+//  clang-format on
 // === Function definitions ===
 /**
  * @brief Determine if `kc` is a keycode modified with RCTL (e.g. `RCTL(KC_L)`).
@@ -131,17 +156,21 @@ struct xy_movement_t {
  * @return `true` if `kc` is modified with `RCTL`.
  **/
 static inline bool is_ctl_modified(const uint16_t kc) {
-    return (QK_RCTL & kc);
+    return (kc & QK_RCTL);
+    //return true;
 }
 
 /**
- * @brief Get the movement speed based on the given keycode.
- * @param kc The keycode to get the corresponding movement speed from.
- * @return `SLOW` if `kc` is CTL modified, `FAST` otherwise.
+ * @brief Calculate the speed transition from the previous to the current movement.
+ * If `prev_speed` is equal to `curr_speed`, `NO_TRANSITION` is returned. Otherwise,
+ * the transition is calculated by `previous_speed - SPEED_DIFF_FAC * curr_speed`.
+ * @param prev_speed The previous movement speed level.
+ * @param curr_speed The current movement speed level.
+ * @return The `speed_transition_t` value.
+ * @see The docs of `speed_transition_t`.
  **/
-static inline enum movement_speed_t kc_2_speed(const enum movement_kc_t kc) {
-    // TODO: return `NO_MVT` if `kc` is no movement keycode
-    return is_ctl_modified(kc) ? SLOW : FAST;
+static inline enum speed_transition_t calculate_speed_transition(const enum movement_speed_t prev_speed, const enum movement_speed_t curr_speed) {
+    return prev_speed == curr_speed ? NO_TRANSITION : (prev_speed - SPEED_DIFF_FAC * curr_speed);
 }
 
 /**
@@ -165,6 +194,7 @@ static enum movement_speed_t calculate_movement_speed(const int axis_value) {
     int axis = abs(axis_value);
 
     if (axis < min_threshold) return NO_MVT;
+    if (!slow_movement_enabled) return FAST;
 
     if (axis < min_threshold + range) {
         return SLOW;
@@ -172,7 +202,10 @@ static enum movement_speed_t calculate_movement_speed(const int axis_value) {
         return FAST;
     }
 }
-
+static inline enum movement_speed_t kc_2_speed(const enum movement_kc_t kc) {
+    // TODO: return `NO_MVT` if `kc` is no movement keycode
+    return kc == NO_MVT_KC ? NO_MVT : (is_ctl_modified(kc) ? SLOW : FAST);
+}
 /**
  * @brief Get the corresponding keycode based on axis, direction and speed.
  * @param axis The axis on which the movement happens (`X_AXIS` or `Y_AXIS`).
@@ -277,6 +310,7 @@ static void unregister_all_movement_kc(struct xy_movement_t *const movement) {
 /**
  * @brief Move the player character on the axis specified in `movement`.
  * This function updates `movement`s `registered_kc`.
+ * @note Call this function only when the movement has changed.
  * @param movement Pointer to the `movement_t` struct on the axis.
  **/
 static void move_on_axis(struct movement_t *const movement) {
@@ -287,22 +321,27 @@ static void move_on_axis(struct movement_t *const movement) {
     const enum movement_speed_t     speed         = movement->speed;
 
     if (speed != NO_MVT) {
-        // Unregister keycodes for opposite speeds.
-        // Opposite speed to `FAST` is `SLOW` and vice versa...
-        const enum movement_speed_t opposite_speed = (speed == SLOW ? FAST : SLOW);
-        if (kc_2_speed(*registered_kc) == opposite_speed && *registered_kc != NO_MVT_KC) {
+        const enum movement_kc_t       new_kc      = axis_dir_spd_2_kc(axis, direction, speed);
+        const enum speed_transition_t speed_trans = calculate_speed_transition(kc_2_speed(*registered_kc), speed);
+        const bool                     same_dir    = direction == kc_2_dir(*registered_kc);
+        // If speed changes from `FAST` to `SLOW` in the same direction, only modifier has to be registered.
+        if (speed_trans == FAST_2_SLOW && same_dir) {
+            QMK_REGISTER_KC((uint16_t)QK_RCTL);
+        }
+        // If speed changes from `SLOW` to `FAST` in same direction, only modifier has to be unregistered.
+        else if (speed_trans == SLOW_2_FAST && same_dir) {
+            QMK_UNREGISTER_KC(QK_RCTL);
+        }
+        // If speed stays on `SLOW` but direction changes, unregister the old 'direction' kc and register the new one.
+        else if (speed == SLOW && speed_trans == NO_TRANSITION && !same_dir) {
+            QMK_UNREGISTER_KC(*registered_kc & 0xff);
+            QMK_REGISTER_KC(new_kc & 0xff);
+        } else {
             QMK_UNREGISTER_KC(*registered_kc);
+            QMK_REGISTER_KC(new_kc);
         }
 
-        // Unregister keycodes for opposite directions.
-        const enum movement_direction_t opposite_direction = (direction == NEGATIVE ? POSITIVE : NEGATIVE);
-        if (kc_2_dir(*registered_kc) == opposite_direction && *registered_kc != NO_MVT_KC) {
-            QMK_UNREGISTER_KC(*registered_kc);
-        }
-
-        // Register the keycode corresponding to the movement.
-        *registered_kc = axis_dir_spd_2_kc(axis, direction, speed);
-        QMK_REGISTER_KC(*registered_kc);
+        *registered_kc = new_kc;
     } else {
         unregister_axis_movement_kc(movement);
     }
