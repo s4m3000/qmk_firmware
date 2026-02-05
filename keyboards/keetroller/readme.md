@@ -27,3 +27,4 @@ Enter the bootloader in 3 ways:
 * `qmk format-c <file>`: Format the c `<file`>.
 * `qmk flash -kb keetroller -km default`: Flash the keeb.
 * `qmk console`: Connect console to the keeb (must be enable on keeb to).
+* `qmk lint -kb <keyboard>`: Check for problems.

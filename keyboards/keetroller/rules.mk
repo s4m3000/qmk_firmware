@@ -1,4 +1,5 @@
 # clang-format off
+SRC += mouse_2_movement.c
 #Bootloader selection
 BOOTLOADER = rp2040
 # enable debugging
