@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 // TODO: enable/disable slow movement for games which only support one movement speed.
 
-
 // === Includes ===
 #include QMK_KEYBOARD_H
 #include <stdio.h>

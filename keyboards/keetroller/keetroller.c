@@ -31,13 +31,11 @@ bool oled_task_kb(void) {
 }
 #endif
 
-
 report_mouse_t pointing_device_task_kb(report_mouse_t mouse_report) {
     move_player_character(mouse_report, game_mode);
 
     return mouse_report;
 }
-
 
 bool pointing_device_send(void) {
     static report_mouse_t old_report         = {};
