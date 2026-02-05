@@ -1,6 +1,5 @@
 // Copyright 2023 QMK
 // SPDX-License-Identifier: GPL-2.0-or-later
-// TODO: enable/disable slow movement for games which only support one movement speed.
 
 // === Includes ===
 #include QMK_KEYBOARD_H
@@ -75,8 +74,8 @@ enum movement_kc_t {
     // Fast movement (replaces WASD)
     KC_F_RIGHT = KC_L,
     KC_F_LEFT  = KC_J,
-    KC_F_UP    = KC_K,  // On y axis, `POSITIVE`/`NEGATIVE` directions
-    KC_F_DOWN  = KC_I,  // are inverted.
+    KC_F_UP    = KC_K, // On y axis, `POSITIVE`/`NEGATIVE` directions
+    KC_F_DOWN  = KC_I, // are inverted.
     // Slow movement (replaces WASD with R_CTL modifier)
     // QK_RCTL is 0x1100, RCTL(kc) results in `QK_RCTL | kc`
     KC_S_RIGHT = RCTL(KC_F_RIGHT),
