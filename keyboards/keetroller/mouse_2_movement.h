@@ -4,10 +4,11 @@
 
 #pragma once
 
-#include QMK_KEYBOARD_H
+//#include QMK_KEYBOARD_H
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdbool.h>
 
 /**
  * @brief Indicate if game mode is active or inactive.
