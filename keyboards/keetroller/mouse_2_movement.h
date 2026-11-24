@@ -23,4 +23,12 @@ extern bool game_mode;
  * When slow movement is enabled, moving the analog stick only half way will send send the movement keycodes modified with `RCTL`. */
 extern bool slow_movement_enabled;
 
+typedef enum {
+    _NORMAL,
+    _G_MODE_1,
+    _G_MODE_2,
+} g_mode_state;
+
+extern g_mode_state curr_g_mode;
+
 extern void move_player_character(const report_mouse_t mouse_report, const bool game_mode);

@@ -12,7 +12,7 @@
 #include "mouse_2_movement.h"
 
 // Aliases for readability
-#define QWERTY   DF(_QWERTY)
+#define QWERTY DF(_QWERTY)
 
 enum custom_keycodes {
     GM_TOGGLE,
@@ -20,7 +20,7 @@ enum custom_keycodes {
 
 enum layers {
     _QWERTY = 0,
-    _G_MODE,
+    _G_LAYER,
     _NAV,
     _SYM,
     _FUNCTION,
@@ -28,14 +28,13 @@ enum layers {
 };
 
 // LT(layer, kc) - momentarily activates layer when held, and sends kc when tapped.
-#define SYM_ENT  LT(_SYM, KC_ENT) 
-#define NAV_SPC  LT(_NAV, KC_SPC)
-#define FK_ESC   LT(_FUNCTION, KC_ESC)
-#define ADJ_TAB  LT(_ADJUST, KC_TAB)
+#define SYM_ENT LT(_SYM, KC_ENT)
+#define NAV_SPC LT(_NAV, KC_SPC)
+#define FK_ESC LT(_FUNCTION, KC_ESC)
+#define ADJ_TAB LT(_ADJUST, KC_TAB)
 
 #define CTL_QUOT MT(MOD_RCTL, KC_QUOTE)
 #define CAPS_CTL MT(MOD_LCTL, KC_CAPS)
-
 
 // Note: LAlt/Enter (ALT_ENT) is not the same thing as the keyboard shortcut Alt+Enter.
 // The notation `mod/tap` denotes a key that activates the modifier `mod` when held down, and
@@ -54,7 +53,7 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
     ),
 
     // Game Mode: no qmk magic
-    [_G_MODE] = LAYOUT(
+    [_G_LAYER] = LAYOUT(
      KC_ESC  , KC_1 ,  KC_2   ,  KC_3  ,   KC_4 ,   KC_5 ,       KC_6  ,   KC_7  ,  KC_8 ,   KC_9 ,  KC_0  ,  KC_DEL,
      KC_TAB  , KC_Q ,  KC_W   ,  KC_E  ,   KC_R ,   KC_T ,       KC_Y  ,   KC_U  ,  KC_I ,   KC_O ,  KC_P  ,  KC_BSPC,
      KC_LCTL , KC_A ,  KC_S   ,  KC_D  ,   KC_F ,   KC_G ,       KC_H  ,   KC_J  ,  KC_K ,   KC_L ,  KC_SCLN, KC_QUOT,
@@ -108,26 +107,18 @@ const uint16_t PROGMEM keymaps[][MATRIX_ROWS][MATRIX_COLS] = {
 //     ),
 };
 
-void toggle_game_mode(tap_dance_state_t *state, void *user_data) {
-    switch (state->count) {
-        case 1:
-            game_mode = !game_mode;
-            break;
-        case 2:
-            if (game_mode) { slow_movement_enabled = !slow_movement_enabled; }
-            break;
-    }
-    reset_tap_dance(state);
-}
-
-// @todo: get rid of tapdacne, just cycle through qwerty, game mode 1 & game mode 2
-// Tap Dance definitions
-tap_dance_action_t tap_dance_actions[] = {
-    [GM_TOGGLE] = ACTION_TAP_DANCE_FN(toggle_game_mode),
-};
-
 bool process_record_user(uint16_t keycode, keyrecord_t *record) {
     switch (keycode) {
+        case GM_TOGGLE:
+            if (curr_g_mode == _G_MODE_2) {
+                curr_g_mode = _NORMAL;
+                set_single_default_layer(_QWERTY);
+            }
+            else {
+                curr_g_mode++;
+                set_single_default_layer(_G_LAYER);
+            }
+            break;
         default:
             break;
     }

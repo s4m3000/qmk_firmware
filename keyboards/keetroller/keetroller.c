@@ -5,8 +5,9 @@
 #include QMK_KEYBOARD_H
 #include "mouse_2_movement.h"
 
-bool game_mode             = false;
-bool slow_movement_enabled = true;
+bool         game_mode             = false;
+bool         slow_movement_enabled = true;
+g_mode_state curr_g_mode           = _NORMAL;
 
 #ifdef OLED_ENABLE
 static void render_logo(void) {
@@ -23,21 +24,31 @@ static void render_logo(void) {
 
 bool oled_task_kb(void) {
     render_logo();
-    //oled_write_P(PSTR("Game Mode "), false);
-    oled_write_P(game_mode ? PSTR("Game Mode") : PSTR("Boring Mode"), false);
-    if (game_mode) {
-    oled_write_P(slow_movement_enabled ? PSTR(" * SLW EN") : PSTR(" * SLW DA"), false);
-    } else {
-        oled_write_ln_P(PSTR(""), false);
+    // oled_write_P(PSTR("Game Mode "), false);
+    //  @todo: display image according to `curr_g_mode`
+    switch (curr_g_mode) {
+        case _NORMAL:
+            oled_write_P(PSTR("Boring Mode"), false);
+            oled_write_ln_P(PSTR(""), false);
+            break;
+        case _G_MODE_1:
+            oled_write_P(PSTR("Game Mode"), false);
+            oled_write_P(PSTR(" * SLW DA"), false);
+            break;
+        case _G_MODE_2:
+            oled_write_P(PSTR("Game Mode"), false);
+            oled_write_P(PSTR(" * SLW EN"), false);
+            break;
     }
-    oled_invert(game_mode);
+
+    oled_invert(curr_g_mode != _NORMAL);
 
     return false;
 }
 #endif
 
 report_mouse_t pointing_device_task_kb(report_mouse_t mouse_report) {
-    move_player_character(mouse_report, game_mode);
+    move_player_character(mouse_report, curr_g_mode != _NORMAL);
 
     return mouse_report;
 }
@@ -45,6 +56,7 @@ report_mouse_t pointing_device_task_kb(report_mouse_t mouse_report) {
 bool pointing_device_send(void) {
     static report_mouse_t old_report         = {};
     report_mouse_t        current_report     = pointing_device_get_report();
+    const bool            game_mode          = curr_g_mode != _NORMAL;
     bool                  should_send_report = has_mouse_report_changed(&current_report, &old_report) && !game_mode;
 
     if (should_send_report) {
